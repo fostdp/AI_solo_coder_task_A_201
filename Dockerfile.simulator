@@ -1,0 +1,42 @@
+# ============================================
+# Stage 1: Builder
+# ============================================
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY simulator/requirements.txt .
+RUN pip install --prefix=/install -r requirements.txt
+
+# ============================================
+# Stage 2: Runtime
+# ============================================
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /install /usr/local
+
+COPY simulator/ /app/
+COPY backend/config/ /app/config/
+COPY backend/common/ /app/common/
+
+RUN addgroup --system app && adduser --system --group app && \
+    chown -R app:app /app
+USER app
+
+ENTRYPOINT ["python", "casting_simulator.py"]
+CMD ["--interval", "3", "--steps", "60"]

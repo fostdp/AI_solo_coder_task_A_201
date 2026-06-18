@@ -1,0 +1,169 @@
+version: "3.8"
+
+services:
+  # ============================================
+  # MongoDB - 副本集 (单节点副本集用于开发)
+  # ============================================
+  mongodb:
+    image: mongo:7.0
+    container_name: lwc-mongodb
+    restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./database/init_mongodb.js:/docker-entrypoint-initdb.d/init.js:ro
+    environment:
+      MONGO_INITDB_DATABASE: lost_wax_casting
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lwc-network
+
+  # MongoDB 副本集初始化
+  mongodb-init:
+    image: mongo:7.0
+    container_name: lwc-mongodb-init
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - ./deploy/mongo-rs-init.sh:/scripts/rs-init.sh:ro
+    entrypoint: ["bash", "/scripts/rs-init.sh"]
+    networks:
+      - lwc-network
+    restart: "no"
+
+  # ============================================
+  # Redis - Pub/Sub 消息总线
+  # ============================================
+  redis:
+    image: redis:7.2-alpine
+    container_name: lwc-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lwc-network
+
+  # ============================================
+  # MQTT Broker - EMQX
+  # ============================================
+  mqtt:
+    image: emqx:5.7
+    container_name: lwc-mqtt
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "8083:8083"
+      - "8883:8883"
+      - "18083:18083"
+    volumes:
+      - mqtt_data:/opt/emqx/data
+    environment:
+      EMQX_NAME: lwc-broker
+      EMQX_NODE_NAME: emqx@mqtt
+      EMQX_ALLOW_ANONYMOUS: "true"
+    healthcheck:
+      test: ["CMD", "emqx", "ctl", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - lwc-network
+
+  # ============================================
+  # Backend - FastAPI + gunicorn
+  # ============================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: lwc-backend
+    restart: unless-stopped
+    depends_on:
+      mongodb-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      mqtt:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      MONGODB_URL: mongodb://mongodb:27017/?replicaSet=rs0
+      DATABASE_NAME: lost_wax_casting
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+      GUNICORN_WORKERS: "4"
+      LOG_LEVEL: info
+    networks:
+      - lwc-network
+
+  # ============================================
+  # Frontend - Nginx + React
+  # ============================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: lwc-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks:
+      - lwc-network
+
+  # ============================================
+  # Simulator - 失蜡法铸造模拟器
+  # ============================================
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile.simulator
+    container_name: lwc-simulator
+    restart: "no"
+    depends_on:
+      - backend
+    environment:
+      API_BASE_URL: http://backend:8000
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+    profiles:
+      - simulator
+    networks:
+      - lwc-network
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  mongodb_data:
+    driver: local
+  redis_data:
+    driver: local
+  mqtt_data:
+    driver: local
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  lwc-network:
+    driver: bridge

@@ -1,0 +1,46 @@
+=== 合金类型测试 ===
+  bronze_cu_sn         - 青铜 Cu-Sn 12% Pb 2%, 浇铸温度: 1180.0°C
+  brass                - 黄铜 Cu-Zn 30%, 浇铸温度: 1060.0°C
+  stainless_steel      - 不锈钢 304, 浇铸温度: 1580.0°C
+  cast_iron            - 灰口铸铁 HT200, 浇铸温度: 1350.0°C
+  aluminum_alloy       - 铝合金 A356, 浇铸温度: 720.0°C
+
+=== 型壳材料测试 ===
+  silica_sol           - 硅溶胶+石英砂, 层数: 9, 透气度: 50.0%
+  water_glass          - 水玻璃+石英砂, 层数: 7, 透气度: 35.0%
+  ethyl_silicate       - 硅酸乙酯+锆英砂, 层数: 10, 透气度: 65.0%
+  gypsum               - 石膏型, 层数: 1, 透气度: 20.0%
+
+=== 模拟器初始化测试 ===
+  合金名称: 不锈钢 304
+  浇铸温度: 1600.0°C
+  型壳名称: 硅酸乙酯+锆英砂
+  型壳层数: 12
+  透气度基准: 65.0%
+  热导率: 1.5 W/(m·K)
+  缺陷强度因子: 0.8
+
+=== 传感器数据生成测试 ===
+  casting_id               : sim-zunpan-5fd2db8a
+  timestamp                : 2026-06-18T13:01:08.402601
+  step                     : 30
+  alloy_type               : stainless_steel
+  shell_material           : ethyl_silicate
+  wax_temperature          : 92.59
+  pouring_temperature      : 1578.62
+  shell_temperature        : 168.69
+  shell_permeability       : 62.05
+  thermal_conductivity     : 1.5
+  filling_progress         : 49.4
+  filling_rate             : 2.55
+  defect_risk_factor       : 0.5
+
+=== 验证数据字段完整性 ===
+  所有必需字段完整 ✓
+
+=== 验证不同合金/型壳组合 ===
+  bronze_cu_sn + silica_sol: 浇铸=1183.79°C, 透气=52.65%
+  aluminum_alloy + gypsum: 浇铸=682.35°C, 透气=24.84%
+  cast_iron + water_glass: 浇铸=1333.56°C, 透气=40.94%
+
+=== 所有测试通过 ===
