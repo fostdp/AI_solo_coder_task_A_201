@@ -1,0 +1,46 @@
+{
+  "alloy_niyama_thresholds": {
+    "steel": 1.0,
+    "cast_iron": 0.8,
+    "aluminum": 0.45,
+    "bronze": 0.6,
+    "brass": 0.55,
+    "copper": 0.5,
+    "zeng_houyi_bronze": 0.58
+  },
+  "alloy_names": {
+    "steel": "钢铁",
+    "cast_iron": "铸铁",
+    "aluminum": "铝合金",
+    "bronze": "青铜 (Cu-Sn)",
+    "brass": "黄铜 (Cu-Zn)",
+    "copper": "纯铜",
+    "zeng_houyi_bronze": "曾侯乙青铜 (Cu-Sn12-Pb2)"
+  },
+  "bronze_specific": {
+    "volume_scale": 0.42,
+    "threshold_low": 0.58,
+    "threshold_medium": 0.42,
+    "threshold_high": 0.30,
+    "threshold_critical": 0.18,
+    "severity_volumes": {
+      "low": 0.8,
+      "medium": 2.2,
+      "high": 4.0
+    },
+    "defect_type_threshold": 2.5
+  },
+  "general_alloy": {
+    "volume_scale": 0.5,
+    "severity_volumes": {
+      "low": 1.0,
+      "medium": 3.0,
+      "high": 5.0
+    },
+    "defect_type_threshold": 3.0
+  },
+  "defect_clustering": {
+    "min_cluster_size": 3,
+    "thickness_penalty_factor": 1.25
+  }
+}

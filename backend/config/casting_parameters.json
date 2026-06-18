@@ -1,0 +1,25 @@
+{
+  "grid_size": [20, 20, 20],
+  "total_steps": 60,
+  "sensor_interval": 60,
+  "default_alloy": "zeng_houyi_bronze",
+  "thermal_properties": {
+    "thermal_conductivity": 401.0,
+    "density": 8960.0,
+    "specific_heat": 385.0
+  },
+  "temperature_range": {
+    "solidus": 950.0,
+    "liquidus": 1083.0,
+    "initial_ambient": 25.0
+  },
+  "filling": {
+    "enable_amr": true,
+    "amr_max_level": 3,
+    "refine_threshold": 0.15
+  },
+  "alert_thresholds": {
+    "max_shrinkage_volume": 5.0,
+    "min_filling_ratio": 0.95
+  }
+}

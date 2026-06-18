@@ -1,0 +1,4 @@
+redis_server: not running: Error 10061 connecting to localhost:6379. 由于目标计算机积极拒绝，无法连接。.
+fakeredis: installed 2.36.2
+redis_py: 8.0.0
+done
