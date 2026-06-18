@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useSimStore } from "@/store/simStore";
@@ -8,6 +8,15 @@ interface Props {
   className?: string;
 }
 
+interface ScreenAnnotation {
+  id: string;
+  x: number;
+  y: number;
+  visible: boolean;
+  occluded: boolean;
+  defect: DefectPrediction;
+}
+
 function tempToColor(t: number, min: number, max: number): THREE.Color {
   const ratio = Math.max(0, Math.min(1, (t - min) / (max - min + 1e-6)));
   const color = new THREE.Color();
@@ -15,16 +24,29 @@ function tempToColor(t: number, min: number, max: number): THREE.Color {
   return color;
 }
 
-function severityColor(severity: string): THREE.Color {
+function severityColorHex(severity: string): string {
   switch (severity) {
     case "critical":
-      return new THREE.Color(0xff1a1a);
+      return "#ff1a1a";
     case "high":
-      return new THREE.Color(0xff4d4d);
+      return "#ff4d4d";
     case "medium":
-      return new THREE.Color(0xff8c1a);
+      return "#ff8c1a";
     default:
-      return new THREE.Color(0xffd93d);
+      return "#ffd93d";
+  }
+}
+
+function severityLabel(severity: string): string {
+  switch (severity) {
+    case "critical":
+      return "严重";
+    case "high":
+      return "高危";
+    case "medium":
+      return "中等";
+    default:
+      return "轻微";
   }
 }
 
@@ -79,17 +101,30 @@ function createZunPanGroup(): THREE.Group {
   return group;
 }
 
+const SCALE = 2.2;
+const DEFECT_WORLD_OFFSET = new THREE.Vector3(-SCALE * 0.5, -SCALE * 0.5 - 0.3, -SCALE * 0.5);
+
+function defectToWorld(defect: DefectPrediction): THREE.Vector3 {
+  return new THREE.Vector3(
+    (defect.position.x - 0.5) * SCALE,
+    (defect.position.z - 0.5) * SCALE - 0.3,
+    (defect.position.y - 0.5) * SCALE
+  );
+}
+
 export function CastingViewer({ className }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
-  renderer: THREE.WebGLRenderer;
-  controls: OrbitControls;
-  castingGroup: THREE.Group;
-  particleSystem: THREE.Points | null;
-    defectMeshes: THREE.Group;
+    renderer: THREE.WebGLRenderer;
+    controls: OrbitControls;
+    castingGroup: THREE.Group;
+    particleSystem: THREE.Points | null;
     tempPointCloud: THREE.Points | null;
+    raycaster: THREE.Raycaster;
+    ndcVec: THREE.Vector3;
   } | null>(null);
 
   const fillingRatio = useSimStore((s) => s.fillingRatio);
@@ -101,6 +136,9 @@ export function CastingViewer({ className }: Props) {
   const tempPoints = useSimStore((s) => s.temperaturePoints);
   const tempRange = useSimStore((s) => s.temperatureRange);
   const setSelectedDefect = useSimStore((s) => s.setSelectedDefect);
+  const selectedDefect = useSimStore((s) => s.selectedDefect);
+
+  const [annotations, setAnnotations] = useState<ScreenAnnotation[]>([]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -164,9 +202,6 @@ export function CastingViewer({ className }: Props) {
     });
     scene.add(castingGroup);
 
-    const defectMeshes = new THREE.Group();
-    scene.add(defectMeshes);
-
     const particleCount = 3000;
     const particleGeo = new THREE.BufferGeometry();
     const positions = new Float32Array(particleCount * 3);
@@ -194,6 +229,8 @@ export function CastingViewer({ className }: Props) {
     scene.add(particleSystem);
 
     const tempPointCloud: THREE.Points | null = null;
+    const raycaster = new THREE.Raycaster();
+    const ndcVec = new THREE.Vector3();
 
     sceneRef.current = {
       scene,
@@ -202,11 +239,58 @@ export function CastingViewer({ className }: Props) {
       controls,
       castingGroup,
       particleSystem,
-      defectMeshes,
       tempPointCloud,
+      raycaster,
+      ndcVec,
     };
 
     let rafId: number;
+    const castingMeshes: THREE.Mesh[] = [];
+    castingGroup.traverse((obj) => {
+      if ((obj as THREE.Mesh).isMesh) castingMeshes.push(obj as THREE.Mesh);
+    });
+
+    const updateAnnotations = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const width = rect.width;
+      const height = rect.height;
+
+      const newAnnotations: ScreenAnnotation[] = defects.map((defect) => {
+        const worldPos = defectToWorld(defect);
+        const projected = worldPos.clone().project(camera);
+        const screenX = (projected.x * 0.5 + 0.5) * width;
+        const screenY = (-projected.y * 0.5 + 0.5) * height;
+        const visible = projected.z >= -1 && projected.z <= 1 && screenX >= 0 && screenX <= width && screenY >= 0 && screenY <= height;
+
+        let occluded = false;
+        if (visible) {
+          ndcVec.set(
+            (screenX / width) * 2 - 1,
+            -(screenY / height) * 2 + 1,
+            projected.z
+          );
+          raycaster.setFromCamera(new THREE.Vector2(ndcVec.x, ndcVec.y), camera);
+          const intersects = raycaster.intersectObjects(castingMeshes, false);
+          if (intersects.length > 0) {
+            const defectDist = camera.position.distanceTo(worldPos);
+            occluded = intersects[0].distance + 0.05 < defectDist;
+          }
+        }
+
+        return {
+          id: defect.id,
+          x: screenX,
+          y: screenY,
+          visible,
+          occluded,
+          defect,
+        };
+      });
+
+      setAnnotations(newAnnotations);
+    };
+
     const animate = () => {
       rafId = requestAnimationFrame(animate);
       if (autoRotate) {
@@ -214,6 +298,9 @@ export function CastingViewer({ className }: Props) {
       }
       controls.update();
       renderer.render(scene, camera);
+      if (showDefects && defects.length > 0) {
+        updateAnnotations();
+      }
     };
     animate();
 
@@ -227,29 +314,9 @@ export function CastingViewer({ className }: Props) {
     };
     window.addEventListener("resize", handleResize);
 
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
-    const handleClick = (e: MouseEvent) => {
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(defectMeshes.children);
-      if (intersects.length > 0) {
-        const defectObj = intersects[0].object as any;
-        if (defectObj.userData?.defect) {
-          setSelectedDefect(defectObj.userData.defect as DefectPrediction);
-        }
-      } else {
-        setSelectedDefect(null);
-      }
-    };
-    renderer.domElement.addEventListener("click", handleClick);
-
     return () => {
       cancelAnimationFrame(rafId);
       window.removeEventListener("resize", handleResize);
-      renderer.domElement.removeEventListener("click", handleClick);
       renderer.dispose();
       if (containerRef.current && renderer.domElement.parentNode === containerRef.current) {
         containerRef.current.removeChild(renderer.domElement);
@@ -268,7 +335,7 @@ export function CastingViewer({ className }: Props) {
       particleGeo.dispose();
       particleMat.dispose();
     };
-  }, [autoRotate, setSelectedDefect]);
+  }, [autoRotate, showDefects, defects]);
 
   useEffect(() => {
     const ref = sceneRef.current;
@@ -300,47 +367,6 @@ export function CastingViewer({ className }: Props) {
 
   useEffect(() => {
     const ref = sceneRef.current;
-    if (!ref) return;
-    ref.defectMeshes.clear();
-    if (!showDefects) return;
-
-    const scale = 2.2;
-    defects.forEach((defect) => {
-      const r = 0.08 + Math.min(0.25, defect.volume * 0.04);
-      const geo = new THREE.SphereGeometry(r, 16, 16);
-      const color = severityColor(defect.severity);
-      const mat = new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.85,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(
-        (defect.position.x - 0.5) * scale,
-        (defect.position.z - 0.5) * scale - 0.3,
-        (defect.position.y - 0.5) * scale
-      );
-      mesh.userData = { defect };
-      ref.defectMeshes.add(mesh);
-
-      const light = new THREE.PointLight(color, defect.severity === "critical" ? 2.5 : 1.2, 1.5);
-      light.position.copy(mesh.position);
-      ref.defectMeshes.add(light);
-
-      const haloGeo = new THREE.SphereGeometry(r * 1.8, 16, 16);
-      const haloMat = new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.18,
-      });
-      const halo = new THREE.Mesh(haloGeo, haloMat);
-      halo.position.copy(mesh.position);
-      ref.defectMeshes.add(halo);
-    });
-  }, [defects, showDefects]);
-
-  useEffect(() => {
-    const ref = sceneRef.current;
     if (!ref || !ref.particleSystem) return;
     const pos = ref.particleSystem.geometry.attributes.position.array as Float32Array;
     const vel = ref.particleSystem.geometry.attributes.velocity.array as Float32Array;
@@ -363,5 +389,69 @@ export function CastingViewer({ className }: Props) {
     ref.particleSystem.geometry.attributes.position.needsUpdate = true;
   }, [fillingRatio]);
 
-  return <div ref={containerRef} className={className} />;
+  const handleAnnotationClick = (defect: DefectPrediction) => {
+    setSelectedDefect(selectedDefect?.id === defect.id ? null : defect);
+  };
+
+  return (
+    <div ref={containerRef} className={`relative ${className ?? ""}`}>
+      <div
+        ref={overlayRef}
+        className="absolute inset-0 pointer-events-none"
+        style={{ zIndex: 10 }}
+      >
+        {showDefects &&
+          annotations.map((ann) => {
+            if (!ann.visible) return null;
+            const color = severityColorHex(ann.defect.severity);
+            const size = 14 + Math.min(20, ann.defect.volume * 3);
+            const isSelected = selectedDefect?.id === ann.defect.id;
+            return (
+              <div
+                key={ann.id}
+                className="absolute pointer-events-auto cursor-pointer"
+                style={{
+                  left: ann.x,
+                  top: ann.y,
+                  transform: "translate(-50%, -50%)",
+                  opacity: ann.occluded ? 0.35 : 1,
+                  transition: "opacity 0.15s",
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAnnotationClick(ann.defect);
+                }}
+              >
+                <div
+                  className="rounded-full animate-pulse"
+                  style={{
+                    width: size,
+                    height: size,
+                    background: color,
+                    boxShadow: `0 0 ${isSelected ? 20 : 10}px ${color}, 0 0 ${isSelected ? 30 : 16}px ${color}66`,
+                    border: isSelected ? `2px solid #fff` : `1px solid ${color}cc`,
+                  }}
+                />
+                {(isSelected || ann.defect.severity === "critical" || ann.defect.severity === "high") && (
+                  <div
+                    className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap rounded px-2 py-1 text-[10px] font-mono"
+                    style={{
+                      top: size + 4,
+                      background: "rgba(10, 10, 15, 0.88)",
+                      border: `1px solid ${color}88`,
+                      color,
+                      backdropFilter: "blur(4px)",
+                    }}
+                  >
+                    <div className="font-bold">{severityLabel(ann.defect.severity)}缺陷</div>
+                    <div className="opacity-75">V={ann.defect.volume.toFixed(2)}cm³</div>
+                    <div className="opacity-75">Niyama={ann.defect.niyama_value.toFixed(3)}</div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+      </div>
+    </div>
+  );
 }
